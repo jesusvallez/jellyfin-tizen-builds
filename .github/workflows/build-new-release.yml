@@ -164,7 +164,7 @@ jobs:
             sed -i 's/AprZAARz4r/JepZAARz4r/g' config.xml
             sed -i 's/<name>Jellyfin<\/name>/<name>Jellyfin 2<\/name>/g' config.xml
             rm icon.png
-            mv ../icon2.png icon.png
+            mv ../icon3.png icon.png
           fi
           if ${{ matrix.oblong_icon == true }}; then
             rm icon.png

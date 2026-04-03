@@ -1,3 +1,7 @@
+# This Source Code Form is subject to the terms of the Mozilla Public
+# License, v. 2.0. If a copy of the MPL was not distributed with this
+# file, You can obtain one at https://mozilla.org/MPL/2.0/.
+
 name: Build New Release
 
 on:
@@ -13,6 +17,10 @@ on:
         type: string
       webReleaseTagName:
         description: 'The tag of the default release version'
+        required: true
+        type: string
+      webPrereleaseTagName:
+        description: 'The tag of the default prerelease version'
         required: true
         type: string
       prerelease:
@@ -40,7 +48,7 @@ jobs:
     
     steps:
       - name: Checkout to repository
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
 
       - name: Set Variables
         id: variables
@@ -67,10 +75,11 @@ jobs:
       - name: Output Inputs
         run: |
           echo $INPUTS_JSON
-          echo $BUILD_REASON >> $GITHUB_STEP_SUMMARY
+          echo $BUILD_INFO >> $GITHUB_STEP_SUMMARY
         env:
           INPUTS_JSON: ${{ toJSON(github.event.inputs) }}
           BUILD_REASON: ${{ github.event.inputs.rawMarkdown }}
+          BUILD_INFO: "${{ github.event.inputs.rawMarkdown }}\n\nLook at the [readme](https://github.com/jeppevinkel/jellyfin-tizen-builds/blob/master/README.md) for information about the different versions.\n## Normal Version\nJellyfin-Web: [${{ github.event.inputs.webReleaseTagName }}](https://github.com/jellyfin/jellyfin-web/releases/tag/${{ github.event.inputs.webReleaseTagName }})  \n\n## Pre-release Version\nJellyfin-Web: [${{ github.event.inputs.webPrereleaseTagName }}](https://github.com/jellyfin/jellyfin-web/releases/tag/${{ github.event.inputs.webPrereleaseTagName }})  \n## 10.11.z Version\nJellyfin-web: [release-10.11.z](https://github.com/jellyfin/jellyfin-web/tree/release-10.11.z)  \n## 10.10.z Version\nJellyfin-web: [release-10.10.z](https://github.com/jellyfin/jellyfin-web/tree/release-10.10.z)  \n## Master Version\nJellyfin-web: [master](https://github.com/jellyfin/jellyfin-web)"
 
   build:
     name: Build artifacts
@@ -86,12 +95,12 @@ jobs:
       - run: env
       
       - name: 'Checkout'
-        uses: actions/checkout@v1
+        uses: actions/checkout@v6
       
       - name: Setup Node.js environment
-        uses: actions/setup-node@v4
+        uses: actions/setup-node@v6
         with:
-          node-version: '>=20'
+          node-version: 'v23.11.1'
           
       - name: Install Needed packages
         run: sudo apt install expect
@@ -118,14 +127,14 @@ jobs:
           CERTIFICATE_CONTENT: ${{ secrets.TIZEN_CERT }}
     
       - name: Clone jellyfin-tizen
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
-          repository: 'jellyfin/jellyfin-tizen'
+          repository: ${{ matrix.smart_hub == true && 'morpheus133/jellyfin-tizen' || 'jellyfin/jellyfin-tizen' }}
           path: 'jellyfin-tizen'
-          ref: ${{ matrix.legacy == true && '8ebbd10643c10033223d6bf1d7fd7d59fba28fe1' || 'master' }}
-          
+          ref: ${{ matrix.smart_hub == true && 'smart-hub-preview-ok' || 'master' }}
+
       - name: Clone jellyfin-web
-        uses: actions/checkout@v4
+        uses: actions/checkout@v6
         with:
           repository: ${{ matrix.repository }}
           path: 'jellyfin-web'
@@ -135,13 +144,17 @@ jobs:
         run: |
           cd jellyfin-web
 
-          if ${{ matrix.modern == true }}; then
-            sed -i -z "s/{user.Name}\n                        <\/h2>/{user.Name}\n                        <\/h2><h4 style={{paddingLeft:'0.25em'}}>${{ matrix.artifact_name }} compiled ${{ needs.run-info.outputs.date }}<\/h4>/g" src/apps/stable/routes/user/settings/index.tsx
-          else
+          if ${{ matrix.legacy == true }}; then
             sed -i "s/<h2 class=\"sectionTitle headerUsername\" style=\"padding-left:.25em;\"><\/h2>/<h2 class=\"sectionTitle headerUsername\" style=\"padding-left:.25em;\"><\/h2><h4 style=\"padding-left:.25em;\">${{ matrix.artifact_name }} compiled ${{ needs.run-info.outputs.date }}<\/h4>/g" src/controllers/user/menu/index.html
+          else
+            sed -i -z "s/{user.Name}\n                        <\/h2>/{user.Name}\n                        <\/h2><h4 style={{paddingLeft:'0.25em'}}>${{ matrix.artifact_name }} compiled ${{ needs.run-info.outputs.date }}<\/h4>/g" src/apps/stable/routes/user/settings/index.tsx
+          fi
+
+          if ${{ matrix.gray_fix == true }}; then
+            sed -i 's/background: #000 !important;/background: transparent !important;/g' src/plugins/htmlVideoPlayer/style.scss
           fi
           
-          if ${{ matrix.legacy == true }}; then
+          if ${{ matrix.legacy == true }} && false; then
             SKIP_PREPARE=1 npm ci --no-audit
             npm run build:production
           else
@@ -155,10 +168,6 @@ jobs:
           cd jellyfin-tizen
           
           sed -i "s/appVersion: tizen.application.getCurrentApplication().appInfo.version/appVersion: tizen.application.getCurrentApplication().appInfo.version + \" compiled ${{ needs.run-info.outputs.date_pretty_sed }} with ${{ matrix.artifact_name }}\"/g" tizen.js
-
-          if ${{ matrix.true_hd == true }}; then
-            sed -i 's/enableSsaRender: true/enableSsaRender: true, supportsTrueHd: true/g' tizen.js
-          fi
           
           if ${{ matrix.secondary == true }}; then
             sed -i 's/AprZAARz4r/JepZAARz4r/g' config.xml
@@ -171,7 +180,7 @@ jobs:
             mv ../iconoblong.png icon.png
           fi
           
-          if ${{ matrix.legacy == true }}; then
+          if ${{ matrix.legacy == true }} && false; then
             DISCARD_UNUSED_FONTS=1 JELLYFIN_WEB_DIR=../jellyfin-web/dist npm ci --no-audit
           else
             JELLYFIN_WEB_DIR=../jellyfin-web/dist npm ci --no-audit
@@ -208,7 +217,7 @@ jobs:
         run: cat ./tizen-studio-data/cli/logs/cli.log
 
       - name: Upload Artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: ${{ matrix.artifact_name }}
           path: jellyfin-tizen/release/${{ matrix.artifact_name }}.wgt
@@ -229,7 +238,7 @@ jobs:
           echo "date=$(date +'%Y-%m-%d %H:%M')" >> $GITHUB_OUTPUT
 
       - name: Download all workflow run artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v7
 
       - name: List all directories
         run: ls
@@ -250,6 +259,6 @@ jobs:
           name: '${{ needs.run-info.outputs.date }}'
           files: |
             **/*.wgt
-          body: "${{ github.event.inputs.rawMarkdown }}\n\nLook at the [readme](https://github.com/jeppevinkel/jellyfin-tizen-builds/blob/master/README.md) for information about the different versions.\n## Normal Version\nJellyfin-Web: [${{ github.event.inputs.webReleaseTagName }}](https://github.com/jellyfin/jellyfin-web/releases/tag/${{ github.event.inputs.webReleaseTagName }})  \n## 10.9.z Version\nJellyfin-web: [release-10.9.z](https://github.com/jellyfin/jellyfin-web/tree/release-10.9.z)  \n## 10.8.z Version\nJellyfin-web: [release-10.8.z](https://github.com/jellyfin/jellyfin-web/tree/release-10.8.z)  \n## Master Version\nJellyfin-web: [master](https://github.com/jellyfin/jellyfin-web)"
+          body: "${{ github.event.inputs.rawMarkdown }}\n\nLook at the [readme](https://github.com/jeppevinkel/jellyfin-tizen-builds/blob/master/README.md) for information about the different versions.\n## Normal Version\nJellyfin-Web: [${{ github.event.inputs.webReleaseTagName }}](https://github.com/jellyfin/jellyfin-web/releases/tag/${{ github.event.inputs.webReleaseTagName }})  \n\n## Pre-release Version\nJellyfin-Web: [${{ github.event.inputs.webPrereleaseTagName }}](https://github.com/jellyfin/jellyfin-web/releases/tag/${{ github.event.inputs.webPrereleaseTagName }})  \n## 10.11.z Version\nJellyfin-web: [release-10.11.z](https://github.com/jellyfin/jellyfin-web/tree/release-10.11.z)  \n## 10.10.z Version\nJellyfin-web: [release-10.10.z](https://github.com/jellyfin/jellyfin-web/tree/release-10.10.z)  \n## Master Version\nJellyfin-web: [master](https://github.com/jellyfin/jellyfin-web)"
           prerelease: ${{ github.event.inputs.prerelease }}
 
